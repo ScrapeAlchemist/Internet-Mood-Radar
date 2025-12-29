@@ -1,9 +1,11 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Receipt, ContentCategory } from '@/types';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { Translations } from '@/lib/translations';
+
+const ITEMS_PER_PAGE = 50;
 
 interface NewsFeedProps {
   receipts: Receipt[];
@@ -59,6 +61,12 @@ export function NewsFeed({ receipts, isOpen, onClose }: NewsFeedProps) {
   const { t } = useLanguage();
   const [filter, setFilter] = useState<ContentCategory | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Reset page when filter or search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filter, searchQuery]);
 
   // Filter receipts based on category and search
   const filteredReceipts = useMemo(() => {
@@ -100,6 +108,13 @@ export function NewsFeed({ receipts, isOpen, onClose }: NewsFeedProps) {
 
     return counts;
   }, [receipts]);
+
+  // Pagination
+  const totalPages = Math.ceil(filteredReceipts.length / ITEMS_PER_PAGE);
+  const paginatedReceipts = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredReceipts.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredReceipts, currentPage]);
 
   if (!isOpen) return null;
 
@@ -165,12 +180,12 @@ export function NewsFeed({ receipts, isOpen, onClose }: NewsFeedProps) {
 
         {/* Scrollable news list */}
         <div className="news-feed-list">
-          {filteredReceipts.length === 0 ? (
+          {paginatedReceipts.length === 0 ? (
             <div className="news-feed-empty">
               {searchQuery ? t.noResults : t.noItems}
             </div>
           ) : (
-            filteredReceipts.map((receipt) => {
+            paginatedReceipts.map((receipt) => {
               const faviconUrl = getFaviconUrl(receipt);
               const color = SOURCE_COLORS[receipt.source] || '#6b7280';
 
@@ -243,6 +258,43 @@ export function NewsFeed({ receipts, isOpen, onClose }: NewsFeedProps) {
             })
           )}
         </div>
+
+        {/* Pagination controls */}
+        {totalPages > 1 && (
+          <div className="news-feed-pagination">
+            <button
+              className="pagination-btn"
+              onClick={() => setCurrentPage(1)}
+              disabled={currentPage === 1}
+            >
+              ««
+            </button>
+            <button
+              className="pagination-btn"
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+            >
+              «
+            </button>
+            <span className="pagination-info">
+              {currentPage} / {totalPages}
+            </span>
+            <button
+              className="pagination-btn"
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+            >
+              »
+            </button>
+            <button
+              className="pagination-btn"
+              onClick={() => setCurrentPage(totalPages)}
+              disabled={currentPage === totalPages}
+            >
+              »»
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

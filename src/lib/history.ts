@@ -120,7 +120,10 @@ export async function saveItemsToHistory(items: NormalizedItem[]): Promise<numbe
       });
       savedCount++;
     } catch (error) {
-      // Skip duplicates or errors silently
+      // Log first few errors to help diagnose issues
+      if (savedCount === 0 && items.indexOf(item) < 3) {
+        console.error(`[HISTORY] Error saving item ${item.id}:`, error);
+      }
     }
   }
 

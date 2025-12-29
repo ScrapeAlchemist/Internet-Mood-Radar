@@ -253,8 +253,22 @@ export function aggregateMoodByCountry(items: NormalizedItem[]): CountryMoodWith
   const countryMoods: CountryMoodWithItems[] = [];
 
   for (const [country, countryItems] of byCountry) {
+    // Prefer LLM-provided moodScore, fall back to keyword-based scoring
+    const itemsWithMood = countryItems.filter(item => item.moodScore !== undefined && item.moodScore !== null);
+
+    let tensionIndex: number;
+    if (itemsWithMood.length > 0) {
+      // Use average of LLM moodScores (moodScore is 0-100 where 100=positive, so tension = 100 - moodScore)
+      const avgMoodScore = itemsWithMood.reduce((sum, item) => sum + (item.moodScore || 50), 0) / itemsWithMood.length;
+      tensionIndex = Math.round(100 - avgMoodScore);
+    } else {
+      // Fall back to keyword-based scoring
+      const emotions = aggregateEmotions(countryItems);
+      tensionIndex = calculateTensionIndex(emotions);
+    }
+
+    // Still calculate emotions for display purposes (using keywords as approximation)
     const emotions = aggregateEmotions(countryItems);
-    const tensionIndex = calculateTensionIndex(emotions);
 
     countryMoods.push({
       country,

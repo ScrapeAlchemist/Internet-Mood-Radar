@@ -27,8 +27,8 @@ export interface Translations {
   settings: string;
   save: string;
   cancel: string;
-  rescan: string;
-  rescanning: string;
+  scan: string;
+  scanning: string;
   close: string;
 
   // Settings modal
@@ -88,8 +88,8 @@ const en: Translations = {
   settings: 'Settings',
   save: 'Save',
   cancel: 'Cancel',
-  rescan: 'Rescan',
-  rescanning: 'Rescanning...',
+  scan: 'Scan',
+  scanning: 'Scanning...',
   close: 'Close',
 
   settingsTitle: 'Settings',
@@ -143,8 +143,8 @@ const he: Translations = {
   settings: 'הגדרות',
   save: 'שמור',
   cancel: 'ביטול',
-  rescan: 'סרוק מחדש',
-  rescanning: 'סורק...',
+  scan: 'סרוק',
+  scanning: 'סורק...',
   close: 'סגור',
 
   settingsTitle: 'הגדרות',
@@ -198,8 +198,8 @@ const ru: Translations = {
   settings: 'Настройки',
   save: 'Сохранить',
   cancel: 'Отмена',
-  rescan: 'Обновить',
-  rescanning: 'Обновление...',
+  scan: 'Сканировать',
+  scanning: 'Сканирование...',
   close: 'Закрыть',
 
   settingsTitle: 'Настройки',

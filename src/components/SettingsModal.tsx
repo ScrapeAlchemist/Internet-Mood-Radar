@@ -96,6 +96,7 @@ interface SettingsModalProps {
   onClose: () => void;
   onRescan: () => void;
   onHistoryCleared?: () => void;
+  onScanComplete?: () => void;
 }
 
 const ALL_LANGUAGES: AppLanguage[] = ['en', 'he', 'ru'];
@@ -126,7 +127,7 @@ const CATEGORY_KEYS: Record<ContentCategory, { labelKey: keyof import('@/lib/tra
 
 const ALL_CATEGORIES: ContentCategory[] = ['news', 'social', 'events', 'weather', 'tech'];
 
-export function SettingsModal({ isOpen, onClose, onRescan, onHistoryCleared }: SettingsModalProps) {
+export function SettingsModal({ isOpen, onClose, onRescan, onHistoryCleared, onScanComplete }: SettingsModalProps) {
   const { t, setLanguage: setAppLanguage } = useLanguage();
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -227,9 +228,48 @@ export function SettingsModal({ isOpen, onClose, onRescan, onHistoryCleared }: S
       }
 
       // Close modal immediately - scan runs in background
-      // The ScanStatusIndicator on the main page will show progress
       onClose();
       onRescan();
+
+      // Poll for scan completion and trigger callback when done
+      const pollForCompletion = async () => {
+        const maxAttempts = 300; // 5 minutes max (300 * 1000ms)
+        let attempts = 0;
+
+        const checkStatus = async () => {
+          try {
+            const statusRes = await fetch('/api/scan-status');
+            if (statusRes.ok) {
+              const status = await statusRes.json();
+              console.log('[SettingsModal] Polling scan status:', status.phase);
+
+              if (status.phase === 'complete') {
+                console.log('[SettingsModal] Scan complete! Triggering onScanComplete');
+                onScanComplete?.();
+                return;
+              } else if (status.phase === 'error') {
+                console.error('[SettingsModal] Scan error:', status.error);
+                return;
+              } else if (status.phase === 'idle') {
+                // Scan finished or was never started
+                return;
+              }
+            }
+          } catch (err) {
+            console.error('[SettingsModal] Error polling status:', err);
+          }
+
+          attempts++;
+          if (attempts < maxAttempts) {
+            setTimeout(checkStatus, 1000);
+          }
+        };
+
+        // Start polling after a brief delay
+        setTimeout(checkStatus, 500);
+      };
+
+      pollForCompletion();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start scan');
     } finally {
@@ -533,19 +573,19 @@ export function SettingsModal({ isOpen, onClose, onRescan, onHistoryCleared }: S
 
             <div className="settings-footer">
               <button
-                className="settings-btn settings-btn-rescan"
+                className="settings-btn settings-btn-scan"
                 onClick={handleRescan}
                 disabled={rescanning}
               >
                 {rescanning ? (
                   <>
                     <span className="btn-spinner" />
-                    {t.rescanning}
+                    {t.scanning}
                   </>
                 ) : (
                   <>
                     <span className="btn-icon">↻</span>
-                    {t.rescan}
+                    {t.scan}
                   </>
                 )}
               </button>

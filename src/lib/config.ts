@@ -43,24 +43,24 @@ export async function getActiveCities(): Promise<string[]> {
 
 // Default fallback configuration (use getActiveCountryConfigs() instead)
 export const DEFAULT_COUNTRY_CONFIG: CountryConfig = {
-  name: 'USA',
-  code: 'us',
-  languages: ['en'],
-  searchLanguages: ['en'],
+  name: 'Middle East',
+  code: 'me',
+  languages: ['en', 'he'],
+  searchLanguages: ['en', 'he'],
   cities: [
-    'New York',
-    'Los Angeles',
-    'Chicago',
-    'Houston',
-    'Phoenix',
-    'San Francisco',
-    'Seattle',
-    'Miami',
+    'Tel Aviv',
+    'Jerusalem',
+    'Beirut',
+    'Cairo',
+    'Dubai',
+    'Riyadh',
+    'Tehran',
+    'Baghdad',
   ],
   categories: ['news', 'events', 'tech', 'social', 'weather'],
   keywords: [
-    'united states', 'usa', 'american', 'washington', 'new york', 'california',
-    'congress', 'white house', 'senate', 'federal', 'biden', 'trump',
+    'middle east', 'israel', 'lebanon', 'egypt', 'saudi arabia', 'iran',
+    'gaza', 'west bank', 'syria', 'jordan', 'uae', 'dubai',
   ],
 };
 

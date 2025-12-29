@@ -1821,12 +1821,12 @@ a:hover {
   color: var(--foreground);
 }
 
-.settings-btn-rescan {
+.settings-btn-scan {
   background: #dc2626;
   color: white;
 }
 
-.settings-btn-rescan:hover:not(:disabled) {
+.settings-btn-scan:hover:not(:disabled) {
   background: #b91c1c;
 }
 
@@ -1904,7 +1904,7 @@ a:hover {
     gap: 0.75rem;
   }
 
-  .settings-btn-rescan {
+  .settings-btn-scan {
     width: 100%;
     justify-content: center;
   }
@@ -2207,6 +2207,44 @@ a:hover {
   text-align: center;
   padding: 3rem 1rem;
   color: var(--muted);
+}
+
+.news-feed-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--card-border);
+  background: var(--card-bg);
+}
+
+.pagination-btn {
+  background: var(--card-border);
+  border: none;
+  color: var(--foreground);
+  padding: 0.4rem 0.75rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: background 0.2s;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  background: var(--accent);
+}
+
+.pagination-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pagination-info {
+  color: var(--muted);
+  font-size: 0.875rem;
+  padding: 0 0.5rem;
+  min-width: 60px;
+  text-align: center;
 }
 
 .news-feed-item {

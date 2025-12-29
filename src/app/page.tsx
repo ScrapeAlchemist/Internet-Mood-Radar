@@ -57,6 +57,7 @@ function MapPageContent() {
         if (savedData) {
           try {
             const parsed = JSON.parse(savedData);
+            console.log('[PAGE] Restoring from sessionStorage:', parsed.allReceipts?.length, 'receipts');
             // Restore dates
             if (parsed.fetchedAt) parsed.fetchedAt = new Date(parsed.fetchedAt);
             if (parsed.allReceipts) {
@@ -87,6 +88,7 @@ function MapPageContent() {
     try {
       sessionStorage.setItem(STORAGE_KEY_SCANNED, hasScanned ? 'true' : 'false');
       if (data) {
+        console.log('[PAGE] Saving to sessionStorage:', data.allReceipts?.length, 'receipts');
         sessionStorage.setItem(STORAGE_KEY_DATA, JSON.stringify(data));
       }
     } catch {
@@ -181,15 +183,22 @@ function MapPageContent() {
     if (!hasScanned) return; // Don't auto-scan on page load
 
     async function fetchPulse() {
+      console.log('[PAGE] fetchPulse called');
       setLoading(true);
       setError(null);
 
       try {
-        const response = await fetch(`/api/pulse?window=${window}`);
+        const fetchUrl = `/api/pulse?window=${window}&_t=${Date.now()}`;
+        console.log('[PAGE] Fetching from:', fetchUrl);
+        const response = await fetch(fetchUrl, {
+          cache: 'no-store',
+        });
+        console.log('[PAGE] Response status:', response.status, 'X-Cache:', response.headers.get('X-Cache'));
         if (!response.ok) {
           throw new Error(`Failed to fetch: ${response.statusText}`);
         }
         const pulse = await response.json();
+        console.log('[PAGE] Got pulse data with', pulse.allReceipts?.length, 'receipts, fetchedAt:', pulse.fetchedAt);
         setData(pulse);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error');
@@ -199,6 +208,7 @@ function MapPageContent() {
     }
 
     // Only fetch if explicitly rescanning (fetchKey > 0) or no data yet
+    console.log('[PAGE] useEffect triggered, fetchKey:', fetchKey, 'hasData:', !!data);
     if (fetchKey > 0 || !data) {
       fetchPulse();
     }
@@ -224,8 +234,12 @@ function MapPageContent() {
 
   // Handle scan complete - refresh data
   const handleScanComplete = useCallback(() => {
+    console.log('[PAGE] Scan complete callback triggered, incrementing fetchKey');
     // Refresh the pulse data after background scan completes
-    setFetchKey((k) => k + 1);
+    setFetchKey((k) => {
+      console.log('[PAGE] fetchKey changing from', k, 'to', k + 1);
+      return k + 1;
+    });
   }, []);
 
   // Handle history cleared - reset to initial welcome state
@@ -352,6 +366,7 @@ function MapPageContent() {
         onClose={() => setShowSettings(false)}
         onRescan={handleRescan}
         onHistoryCleared={handleHistoryCleared}
+        onScanComplete={handleScanComplete}
       />
 
       {/* News feed panel */}

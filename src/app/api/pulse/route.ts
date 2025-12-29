@@ -35,7 +35,8 @@ function validateQueryParams(searchParams: URLSearchParams): {
   }
 
   // Check for unexpected parameters (security: reject unknown params)
-  const knownParams = new Set(['window']);
+  // Allow _t for cache-busting timestamps
+  const knownParams = new Set(['window', '_t']);
   for (const [key] of searchParams.entries()) {
     if (!knownParams.has(key)) {
       errors.push(`Unknown parameter: "${key}"`);
@@ -87,6 +88,7 @@ export async function GET(request: NextRequest) {
     // Check cache first (24-hour TTL)
     const cached = await getCachedPulse(window);
     if (cached) {
+      console.log(`[Pulse API] Cache HIT for window=${window}, returning ${cached.allReceipts?.length || 0} items`);
       return NextResponse.json(cached, {
         status: 200,
         headers: {
@@ -98,6 +100,7 @@ export async function GET(request: NextRequest) {
         },
       });
     }
+    console.log(`[Pulse API] Cache MISS for window=${window}, running pipeline`);
 
     // Cache miss - run full pipeline
     // Get language from settings

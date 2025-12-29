@@ -8,6 +8,7 @@
 import { prisma } from '@/lib/db';
 import { ContentCategory } from '@/types';
 import { AppLanguage } from '@/lib/translations';
+import { PREDEFINED_REGIONS } from '@/lib/country-config';
 
 // Display time frame options
 export type DisplayTimeFrame = '1d' | '1w' | '1m' | '1y' | 'all';
@@ -95,7 +96,17 @@ export async function getSettings(): Promise<AppSettings> {
         // Migration from old schema
         regions = [dbRecord.country];
       } else {
-        regions = ['USA'];
+        regions = ['Middle East'];
+      }
+
+      // Filter out any non-region values (like 'USA' which is a country, not a region)
+      const validRegions = Object.keys(PREDEFINED_REGIONS);
+      const filteredRegions = regions.filter(r => validRegions.includes(r));
+      if (filteredRegions.length === 0) {
+        // If no valid regions, default to Middle East
+        regions = ['Middle East'];
+      } else {
+        regions = filteredRegions;
       }
 
       return {

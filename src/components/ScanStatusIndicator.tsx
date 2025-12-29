@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 interface ScanStatus {
   phase: 'idle' | 'fetching' | 'processing' | 'clustering' | 'summarizing' | 'saving' | 'complete' | 'error';
@@ -32,15 +32,22 @@ export function ScanStatusIndicator({ onScanComplete }: ScanStatusIndicatorProps
   const [isPolling, setIsPolling] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
 
+  // Use ref to avoid stale closure issues
+  const isPollingRef = useRef(isPolling);
+  isPollingRef.current = isPolling;
+
   const pollStatus = useCallback(async () => {
     try {
       const response = await fetch('/api/scan-status');
       if (response.ok) {
         const data: ScanStatus = await response.json();
+        const currentlyPolling = isPollingRef.current;
+        console.log('[ScanStatusIndicator] Poll result:', data.phase, '- isPolling:', currentlyPolling);
         setStatus(data);
 
         // Check if scan just completed
-        if (data.phase === 'complete' && isPolling) {
+        if (data.phase === 'complete' && currentlyPolling) {
+          console.log('[ScanStatusIndicator] Scan complete detected, calling onScanComplete');
           setShowSuccess(true);
           setIsPolling(false);
           onScanComplete?.();
@@ -60,16 +67,31 @@ export function ScanStatusIndicator({ onScanComplete }: ScanStatusIndicatorProps
       console.error('Failed to poll scan status:', error);
     }
     return null;
-  }, [isPolling, onScanComplete]);
+  }, [onScanComplete]);
 
-  // Start polling when component mounts
+  // Start polling when component mounts and periodically check for new scans
   useEffect(() => {
     // Initial check
-    pollStatus().then((data) => {
+    console.log('[ScanStatusIndicator] Mount - checking initial status');
+
+    const checkAndStartPolling = async () => {
+      const data = await pollStatus();
+      console.log('[ScanStatusIndicator] Status check:', data?.phase);
       if (data && data.phase !== 'idle' && data.phase !== 'complete' && data.phase !== 'error') {
-        setIsPolling(true);
+        if (!isPollingRef.current) {
+          console.log('[ScanStatusIndicator] Scan in progress, starting polling');
+          isPollingRef.current = true;
+          setIsPolling(true);
+        }
       }
-    });
+    };
+
+    checkAndStartPolling();
+
+    // Also periodically check in case a scan was started externally
+    const checkInterval = setInterval(checkAndStartPolling, 3000);
+    return () => clearInterval(checkInterval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Poll interval when a scan is in progress
@@ -82,7 +104,9 @@ export function ScanStatusIndicator({ onScanComplete }: ScanStatusIndicatorProps
 
   // Public method to start watching for scan status
   const startWatching = useCallback(() => {
-    setIsPolling(true);
+    console.log('[ScanStatusIndicator] startWatching called - setting isPolling to true');
+    isPollingRef.current = true;  // Update ref immediately
+    setIsPolling(true);  // Also update state for re-renders
     pollStatus();
   }, [pollStatus]);
 

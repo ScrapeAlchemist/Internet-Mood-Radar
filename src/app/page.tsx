@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
-import { PulseResponse } from '@/types';
-import { MapControls } from '@/components/map';
+import { PulseResponse, EmotionDistribution } from '@/types';
+import { MapControls, ALL_CATEGORIES, ContentCategory, CategoryCounts } from '@/components/map';
 import { ErrorBoundary } from '@/components';
 import { SettingsModal } from '@/components/SettingsModal';
 import { NewsFeed } from '@/components/NewsFeed';
@@ -25,7 +25,14 @@ const WorldMap = dynamic(
   }
 );
 
-type TimeWindow = '1h' | '6h' | '24h';
+type TimeWindow = '1d' | '1w' | '1m';
+
+// Time frame durations in milliseconds
+const TIME_FRAME_MS: Record<TimeWindow, number> = {
+  '1d': 24 * 60 * 60 * 1000,
+  '1w': 7 * 24 * 60 * 60 * 1000,
+  '1m': 30 * 24 * 60 * 60 * 1000,
+};
 
 // Session storage keys for persisting state across navigation
 const STORAGE_KEY_DATA = 'pulse_data';
@@ -33,7 +40,7 @@ const STORAGE_KEY_SCANNED = 'has_scanned';
 
 function MapPageContent() {
   const { t, setLanguage } = useLanguage();
-  const [window, setWindow] = useState<TimeWindow>('6h');
+  const [timeFrame, setTimeFrame] = useState<TimeWindow>('1d');
   const [data, setData] = useState<PulseResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,6 +52,9 @@ function MapPageContent() {
   const [fetchKey, setFetchKey] = useState(0); // Used to trigger re-fetch
   const [initialized, setInitialized] = useState(false);
   const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
+  const [selectedCategories, setSelectedCategories] = useState<Set<ContentCategory>>(
+    new Set(ALL_CATEGORIES)
+  );
 
   // Restore state from sessionStorage on mount
   useEffect(() => {
@@ -114,14 +124,119 @@ function MapPageContent() {
     loadInitialLanguage();
   }, [setLanguage]);
 
-  // Separate news receipts from events - use allReceipts for full coverage on map
-  const { newsReceipts, eventReceipts, distinctSourceCount } = useMemo(() => {
-    if (!data) return { newsReceipts: [], eventReceipts: [], distinctSourceCount: 0 };
-    // Use allReceipts instead of receiptsFeed to show all items on map
+  // Try to load cached data on startup (even if user hasn't scanned in this session)
+  useEffect(() => {
+    if (!initialized) return;
+    if (data) return; // Already have data from sessionStorage
+
+    async function loadCachedData() {
+      try {
+        console.log('[PAGE] Checking for cached data on startup...');
+        const response = await fetch('/api/pulse?_t=' + Date.now(), {
+          cache: 'no-store',
+        });
+
+        if (response.ok) {
+          const cacheHeader = response.headers.get('X-Cache');
+          // Only use if it's cached data (HIT or STALE), don't trigger new pipeline
+          if (cacheHeader === 'HIT' || cacheHeader === 'STALE') {
+            const pulse = await response.json();
+            if (pulse.allReceipts?.length > 0) {
+              console.log('[PAGE] Found cached data:', pulse.allReceipts.length, 'receipts');
+              setData(pulse);
+              setHasScanned(true); // Mark as having data
+            }
+          }
+        }
+      } catch (err) {
+        console.log('[PAGE] No cached data available:', err);
+      }
+    }
+
+    loadCachedData();
+  }, [initialized, data]);
+
+  // Filter receipts by time frame (client-side)
+  const timeFilteredReceipts = useMemo(() => {
+    if (!data) return [];
     const receipts = data.allReceipts || data.receiptsFeed || [];
-    console.log('[PAGE] Total receipts for map:', receipts.length);
-    const news = receipts.filter((r) => r.source !== 'events');
-    const events = receipts.filter((r) => r.source === 'events');
+    const cutoff = new Date(Date.now() - TIME_FRAME_MS[timeFrame]);
+
+    const filtered = receipts.filter((r) => {
+      if (!r.createdAt) return true; // Include items without createdAt
+      const createdAt = new Date(r.createdAt);
+      return createdAt >= cutoff;
+    });
+
+    console.log(`[PAGE] Time filter: ${timeFrame}, cutoff: ${cutoff.toISOString()}, ${filtered.length}/${receipts.length} items`);
+    return filtered;
+  }, [data, timeFrame]);
+
+  // Helper to categorize a receipt based on lens field
+  const getReceiptCategory = useCallback((receipt: { lens?: string; sourceType?: string; source?: string }): ContentCategory => {
+    // Use lens field if available (new data)
+    if (receipt.lens) {
+      switch (receipt.lens) {
+        case 'Events': return 'events';
+        case 'Tech': return 'tech';
+        case 'Weather': return 'weather';
+        case 'Conversation': return 'social';
+        case 'Headlines':
+        default: return 'news';
+      }
+    }
+    // Fallback to sourceType for older data
+    const sourceType = receipt.sourceType || receipt.source;
+    if (sourceType === 'events') return 'events';
+    if (sourceType === 'hn') return 'tech';
+    if (sourceType === 'reddit' || sourceType === 'telegram') return 'social';
+    return 'news'; // rss, search, and others default to news
+  }, []);
+
+  // Calculate category counts
+  const categoryCounts: CategoryCounts = useMemo(() => {
+    const counts: CategoryCounts = { news: 0, events: 0, tech: 0, social: 0, weather: 0 };
+    if (timeFilteredReceipts.length === 0) return counts;
+
+    for (const r of timeFilteredReceipts) {
+      const cat = getReceiptCategory(r);
+      counts[cat]++;
+    }
+
+    console.log('[PAGE] Category counts:', counts);
+    return counts;
+  }, [timeFilteredReceipts, getReceiptCategory]);
+
+  // Filter receipts by selected categories (multi-select) - only affects display, not mood calculations
+  const categoryFilteredReceipts = useMemo(() => {
+    // If all categories selected, return all
+    if (selectedCategories.size === ALL_CATEGORIES.length) return timeFilteredReceipts;
+    // If none selected, also return all (to avoid empty state)
+    if (selectedCategories.size === 0) return timeFilteredReceipts;
+    return timeFilteredReceipts.filter((r) => selectedCategories.has(getReceiptCategory(r)));
+  }, [timeFilteredReceipts, selectedCategories, getReceiptCategory]);
+
+  // Toggle a category on/off (at least one must remain selected)
+  const handleCategoryToggle = useCallback((category: ContentCategory) => {
+    setSelectedCategories(prev => {
+      const next = new Set(prev);
+      if (next.has(category)) {
+        // Don't allow deselecting the last category
+        if (next.size <= 1) return prev;
+        next.delete(category);
+      } else {
+        next.add(category);
+      }
+      return next;
+    });
+  }, []);
+
+  // Separate news receipts from events - use category filtered receipts for map display
+  const { newsReceipts, eventReceipts, distinctSourceCount } = useMemo(() => {
+    if (categoryFilteredReceipts.length === 0) return { newsReceipts: [], eventReceipts: [], distinctSourceCount: 0 };
+
+    const news = categoryFilteredReceipts.filter((r) => r.source !== 'events');
+    const events = categoryFilteredReceipts.filter((r) => r.source === 'events');
     console.log('[PAGE] News receipts:', news.length, 'Event receipts:', events.length);
     // Count distinct sources (unique source types like 'search', 'reddit', etc.)
     const uniqueSources = new Set(news.map((r) => r.source));
@@ -130,50 +245,99 @@ function MapPageContent() {
       eventReceipts: events,
       distinctSourceCount: uniqueSources.size,
     };
-  }, [data]);
+  }, [categoryFilteredReceipts]);
+
+  // Recalculate country moods based on filtered receipts
+  const filteredCountryMoods = useMemo(() => {
+    if (timeFilteredReceipts.length === 0) return [];
+
+    // Group receipts by country
+    const byCountry = new Map<string, typeof timeFilteredReceipts>();
+    for (const r of timeFilteredReceipts) {
+      if (r.location?.country) {
+        const existing = byCountry.get(r.location.country) || [];
+        existing.push(r);
+        byCountry.set(r.location.country, existing);
+      }
+    }
+
+    // Calculate mood for each country
+    return Array.from(byCountry.entries()).map(([country, receipts]) => {
+      // Calculate average mood score from items
+      const moodScores = receipts.filter(r => r.moodScore !== undefined).map(r => r.moodScore as number);
+      const avgMood = moodScores.length > 0
+        ? Math.round(moodScores.reduce((a, b) => a + b, 0) / moodScores.length)
+        : 50;
+
+      // Tension is inverse of mood (high mood = low tension)
+      const tensionIndex = 100 - avgMood;
+
+      // Default neutral emotion distribution for client-side calculated moods
+      const defaultEmotions: EmotionDistribution = {
+        anger: 0,
+        anxiety: 0,
+        sadness: 0,
+        resilience: 0,
+        hope: 0,
+        excitement: 0,
+        cynicism: 0,
+        neutral: 1,
+      };
+
+      // Try to get LLM-generated summary from original data
+      const originalMood = data?.countryMoods?.find(m => m.country === country);
+      const llmSummary = originalMood?.summary;
+
+      // Use LLM summary if available, otherwise generate a fallback
+      const fallbackSummary = `${country}: ${receipts.length} items in the ${timeFrame === '1d' ? 'last 24 hours' : timeFrame === '1w' ? 'last week' : 'last month'}`;
+
+      return {
+        country,
+        tensionIndex,
+        itemCount: receipts.length,
+        emotions: defaultEmotions,
+        summary: llmSummary || fallbackSummary,
+      };
+    }).sort((a, b) => b.itemCount - a.itemCount);
+  }, [timeFilteredReceipts, timeFrame, data?.countryMoods]);
 
   // Get selected country's mood data (or overall if none selected)
   const selectedMood = useMemo(() => {
     if (!data) return null;
 
-    // Debug: log available country moods
-    if (data.countryMoods) {
-      console.log('[PAGE] Available countryMoods:', data.countryMoods.map(m => `${m.country}(${m.itemCount})`).join(', '));
-    }
-
     if (!selectedCountry) {
-      // Return overall data
+      // Calculate overall tension from filtered receipts
+      const moodScores = timeFilteredReceipts.filter(r => r.moodScore !== undefined).map(r => r.moodScore as number);
+      const avgMood = moodScores.length > 0
+        ? Math.round(moodScores.reduce((a, b) => a + b, 0) / moodScores.length)
+        : 50;
+      const overallTension = 100 - avgMood;
+
       return {
-        tensionIndex: data.tensionIndex,
+        tensionIndex: overallTension,
         summary: data.overallSummary,
-        itemCount: data.allReceipts?.length ?? 0,
+        itemCount: timeFilteredReceipts.length,
       };
     }
 
     console.log('[PAGE] Looking for country:', selectedCountry);
 
-    // Find the selected country's mood
-    const countryMood = data.countryMoods?.find(
+    // Find the selected country's mood from filtered data
+    const countryMood = filteredCountryMoods.find(
       (m) => m.country === selectedCountry
     );
 
     if (!countryMood) {
-      console.log('[PAGE] Country not found in countryMoods, no data for this country');
-      return null; // No data for this country - don't show any summary
+      console.log('[PAGE] Country not found in filtered moods');
+      return null;
     }
-
-    console.log('[PAGE] Found countryMood:', countryMood);
-
-    // Use LLM-generated summary if available, otherwise fallback
-    const summary = countryMood.summary ||
-      `${selectedCountry}: ${countryMood.itemCount} news items, tension ${countryMood.tensionIndex}/100`;
 
     return {
       tensionIndex: countryMood.tensionIndex,
-      summary,
+      summary: countryMood.summary,
       itemCount: countryMood.itemCount,
     };
-  }, [data, selectedCountry]);
+  }, [data, selectedCountry, timeFilteredReceipts, filteredCountryMoods]);
 
   // Only fetch when user explicitly triggers a scan (via fetchKey change)
   // fetchKey > 0 means user clicked rescan, so always fetch
@@ -188,7 +352,8 @@ function MapPageContent() {
       setError(null);
 
       try {
-        const fetchUrl = `/api/pulse?window=${window}&_t=${Date.now()}`;
+        // Fetch all data - time filtering is done client-side
+        const fetchUrl = `/api/pulse?_t=${Date.now()}`;
         console.log('[PAGE] Fetching from:', fetchUrl);
         const response = await fetch(fetchUrl, {
           cache: 'no-store',
@@ -207,16 +372,15 @@ function MapPageContent() {
       }
     }
 
-    // Only fetch if explicitly rescanning (fetchKey > 0) or no data yet
+    // Always fetch fresh data from API (the API has its own cache)
+    // This ensures we get the latest data after scans complete
     console.log('[PAGE] useEffect triggered, fetchKey:', fetchKey, 'hasData:', !!data);
-    if (fetchKey > 0 || !data) {
-      fetchPulse();
-    }
+    fetchPulse();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [window, fetchKey, hasScanned, initialized]);
+  }, [fetchKey, hasScanned, initialized]);
 
-  const handleWindowChange = useCallback((newWindow: TimeWindow) => {
-    setWindow(newWindow);
+  const handleTimeFrameChange = useCallback((newTimeFrame: TimeWindow) => {
+    setTimeFrame(newTimeFrame);
   }, []);
 
   // Handle rescan - now triggers background scan
@@ -309,8 +473,8 @@ function MapPageContent() {
             receipts={newsReceipts}
             events={eventReceipts}
             showEvents={showEvents}
-            tensionIndex={data.tensionIndex}
-            countryMoods={data.countryMoods}
+            tensionIndex={selectedMood?.tensionIndex ?? data.tensionIndex}
+            countryMoods={filteredCountryMoods}
             selectedCountry={selectedCountry}
             onCountrySelect={setSelectedCountry}
             onCollectCountryData={handleCollectCountryData}
@@ -344,12 +508,12 @@ function MapPageContent() {
 
       {/* Map controls overlay */}
       <MapControls
-        window={window}
-        onWindowChange={handleWindowChange}
+        timeFrame={timeFrame}
+        onTimeFrameChange={handleTimeFrameChange}
         tensionIndex={selectedMood?.tensionIndex ?? data?.tensionIndex ?? 0}
         topicCount={data?.topics.length ?? 0}
         sourceCount={distinctSourceCount}
-        totalCount={data?.allReceipts?.length ?? 0}
+        totalCount={timeFilteredReceipts.length}
         eventCount={eventReceipts.length}
         showEvents={showEvents}
         onToggleEvents={setShowEvents}
@@ -358,6 +522,9 @@ function MapPageContent() {
         loading={loading}
         selectedCountry={selectedCountry}
         onClearSelection={() => setSelectedCountry(null)}
+        selectedCategories={selectedCategories}
+        onCategoryToggle={handleCategoryToggle}
+        categoryCounts={categoryCounts}
       />
 
       {/* Settings modal */}
@@ -371,9 +538,11 @@ function MapPageContent() {
 
       {/* News feed panel */}
       <NewsFeed
-        receipts={data?.allReceipts ?? []}
+        receipts={timeFilteredReceipts}
         isOpen={showNewsFeed}
         onClose={() => setShowNewsFeed(false)}
+        initialCategories={selectedCategories}
+        onCategoriesChange={setSelectedCategories}
       />
 
       {/* Summary panel (toggleable) - only show when a country is selected */}

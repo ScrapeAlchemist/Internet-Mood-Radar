@@ -95,10 +95,13 @@ export async function saveItemsToHistory(items: NormalizedItem[]): Promise<numbe
         update: {
           engagement: item.engagement,
           relevanceScore: item.relevanceScore || 0,
+          moodScore: item.moodScore ?? null,
           country: item.location?.country || null,
           locationName: item.location?.name || null,
           lat: item.location?.lat ?? null,
           lng: item.location?.lng ?? null,
+          // Update createdAt if we now have a better (LLM-extracted) publication date
+          createdAt: item.createdAt,
         },
         create: {
           id: item.id,
@@ -111,6 +114,7 @@ export async function saveItemsToHistory(items: NormalizedItem[]): Promise<numbe
           engagement: item.engagement,
           context: item.context,
           relevanceScore: item.relevanceScore || 0,
+          moodScore: item.moodScore ?? null,
           country: item.location?.country || null,
           locationName: item.location?.name || null,
           lat: item.location?.lat ?? null,
@@ -132,7 +136,75 @@ export async function saveItemsToHistory(items: NormalizedItem[]): Promise<numbe
 }
 
 /**
+ * Compute mood trend from historical items grouped by time buckets
+ * Converts moodScore (0-100, higher=positive) to tensionIndex (0-100, higher=tense)
+ */
+export async function getMoodTrendFromItems(hours: number = 24): Promise<TensionTrend[]> {
+  const since = new Date(Date.now() - hours * 60 * 60 * 1000);
+
+  // Determine bucket size based on time range
+  // 6h-24h: hourly buckets
+  // 7d: 4-hour buckets
+  // 30d: daily buckets
+  let bucketMs: number;
+  if (hours <= 24) {
+    bucketMs = 60 * 60 * 1000; // 1 hour
+  } else if (hours <= 168) {
+    bucketMs = 4 * 60 * 60 * 1000; // 4 hours
+  } else {
+    bucketMs = 24 * 60 * 60 * 1000; // 1 day
+  }
+
+  const items = await prisma.historicalItem.findMany({
+    where: {
+      createdAt: { gte: since },
+      moodScore: { not: null },
+    },
+    select: {
+      createdAt: true,
+      moodScore: true,
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  if (items.length === 0) {
+    return [];
+  }
+
+  // Group items into time buckets
+  const buckets = new Map<number, { total: number; count: number }>();
+
+  for (const item of items) {
+    const bucketTime = Math.floor(item.createdAt.getTime() / bucketMs) * bucketMs;
+    const existing = buckets.get(bucketTime) || { total: 0, count: 0 };
+    existing.total += item.moodScore!;
+    existing.count++;
+    buckets.set(bucketTime, existing);
+  }
+
+  // Convert to TensionTrend format
+  // moodScore: 0=negative, 100=positive
+  // tensionIndex: 0=calm, 100=tense
+  // So tension = 100 - moodScore (inverted)
+  const trend: TensionTrend[] = [];
+  const sortedBuckets = Array.from(buckets.entries()).sort((a, b) => a[0] - b[0]);
+
+  for (const [timestamp, data] of sortedBuckets) {
+    const avgMood = data.total / data.count;
+    const tensionIndex = 100 - avgMood; // Invert: low mood = high tension
+    trend.push({
+      timestamp: new Date(timestamp),
+      tensionIndex: Math.round(tensionIndex * 10) / 10,
+      window: 'items',
+    });
+  }
+
+  return trend;
+}
+
+/**
  * Get tension trend over time
+ * Falls back to computing from historical items if no pulse snapshots available
  */
 export async function getTensionTrend(
   hours: number = 24,
@@ -153,7 +225,23 @@ export async function getTensionTrend(
     },
   });
 
-  return pulses;
+  // If we have enough pulse data, use it
+  if (pulses.length >= 3) {
+    return pulses;
+  }
+
+  // Fall back to computing from historical items
+  const itemTrend = await getMoodTrendFromItems(hours);
+
+  // If we have some pulse data, merge it with item data
+  if (pulses.length > 0 && itemTrend.length > 0) {
+    // Combine and sort by timestamp
+    const combined = [...pulses, ...itemTrend];
+    combined.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    return combined;
+  }
+
+  return itemTrend.length > 0 ? itemTrend : pulses;
 }
 
 /**
@@ -327,6 +415,17 @@ export interface CountryBreakdown {
   percentage: number;
 }
 
+export interface CountryMoodEntry {
+  country: string;
+  avgMood: number;
+  count: number;
+}
+
+export interface CountryMoodRanking {
+  happiest: CountryMoodEntry[];
+  tensest: CountryMoodEntry[];
+}
+
 export interface TopicAggregate {
   title: string;
   keywords: string[];
@@ -384,49 +483,138 @@ export async function getEmotionAverages(hours: number = 24): Promise<Record<str
 }
 
 /**
- * Get source breakdown from historical items
+ * Get category breakdown from historical items (using lens field)
+ * Returns content categories: Headlines, Conversation, Weather, Tech, Events
  */
 export async function getSourceBreakdown(hours: number = 24): Promise<SourceBreakdown[]> {
   const since = new Date(Date.now() - hours * 60 * 60 * 1000);
 
-  const items = await prisma.historicalItem.groupBy({
-    by: ['source'],
-    where: { fetchedAt: { gte: since } },
-    _count: { source: true },
-    orderBy: { _count: { source: 'desc' } },
-  });
-
-  const total = items.reduce((sum, item) => sum + item._count.source, 0);
-
-  return items.map(item => ({
-    source: item.source,
-    count: item._count.source,
-    percentage: total > 0 ? (item._count.source / total) * 100 : 0,
-  }));
-}
-
-/**
- * Get country breakdown from historical items using the country field
- */
-export async function getCountryBreakdown(hours: number = 24): Promise<CountryBreakdown[]> {
-  const since = new Date(Date.now() - hours * 60 * 60 * 1000);
-
-  // Use raw SQL for reliable groupBy with nullable field
-  const result = await prisma.$queryRaw<{ country: string | null; count: bigint }[]>`
-    SELECT country, COUNT(*) as count
+  // Use raw SQL with proper date parameter binding
+  const result = await prisma.$queryRaw<{ lens: string | null; count: bigint }[]>`
+    SELECT lens, COUNT(*) as count
     FROM HistoricalItem
-    WHERE fetchedAt >= ${since.toISOString()}
-    GROUP BY country
+    WHERE fetchedAt >= ${since}
+      AND lens IS NOT NULL
+    GROUP BY lens
     ORDER BY count DESC
   `;
 
   const total = result.reduce((sum, item) => sum + Number(item.count), 0);
 
   return result.map(item => ({
-    country: item.country || 'Unknown',
+    source: item.lens || 'Unknown',
     count: Number(item.count),
     percentage: total > 0 ? (Number(item.count) / total) * 100 : 0,
   }));
+}
+
+/**
+ * Get country mood ranking from historical items
+ * Returns top 5 happiest (highest avgMood) and top 5 tensest (lowest avgMood) countries
+ * moodScore: 0 = very negative/tense, 50 = neutral, 100 = very positive/happy
+ */
+export async function getCountryMoodRanking(hours: number = 24): Promise<CountryMoodRanking> {
+  const since = new Date(Date.now() - hours * 60 * 60 * 1000);
+
+  // Query countries with average mood score, requiring at least 3 items for reliability
+  const result = await prisma.$queryRaw<{ country: string | null; avgMood: number; count: bigint }[]>`
+    SELECT country, AVG(moodScore) as avgMood, COUNT(*) as count
+    FROM HistoricalItem
+    WHERE fetchedAt >= ${since}
+      AND country IS NOT NULL
+      AND country != ''
+      AND moodScore IS NOT NULL
+    GROUP BY country
+    HAVING COUNT(*) >= 3
+    ORDER BY avgMood DESC
+  `;
+
+  // Filter out null countries and convert
+  const validResults = result
+    .filter(r => r.country)
+    .map(r => ({
+      country: r.country as string,
+      avgMood: Math.round(r.avgMood),
+      count: Number(r.count),
+    }));
+
+  // Top 5 happiest (highest mood scores)
+  const happiest = validResults.slice(0, 5);
+
+  // Top 5 tensest (lowest mood scores) - reverse order
+  const tensest = validResults.slice(-5).reverse();
+
+  return { happiest, tensest };
+}
+
+export interface HeadlineHighlight {
+  id: string;
+  title: string;
+  country: string | null;
+  moodScore: number;
+  url: string;
+  lens: string | null;
+}
+
+export interface HeadlineHighlights {
+  mostPositive: HeadlineHighlight[];
+  mostNegative: HeadlineHighlight[];
+}
+
+/**
+ * Get headline highlights - most positive and most negative headlines
+ */
+export async function getHeadlineHighlights(hours: number = 24, limit: number = 5): Promise<HeadlineHighlights> {
+  const since = new Date(Date.now() - hours * 60 * 60 * 1000);
+
+  // Get items with moodScore, ordered by mood (we'll split later)
+  const items = await prisma.historicalItem.findMany({
+    where: {
+      fetchedAt: { gte: since },
+      moodScore: { not: null },
+      title: { not: '' },
+    },
+    select: {
+      id: true,
+      title: true,
+      country: true,
+      moodScore: true,
+      url: true,
+      lens: true,
+    },
+    orderBy: { moodScore: 'desc' },
+  });
+
+  // Filter out invalid titles
+  const validItems = items.filter(item =>
+    item.title &&
+    !INVALID_TITLE_PATTERNS.some(p => p.test(item.title.trim())) &&
+    !item.title.includes('IN ENGLISH') &&
+    !item.title.includes('IN HEBREW') &&
+    !item.title.includes('IN RUSSIAN')
+  );
+
+  // Most positive (highest moodScore)
+  const mostPositive = validItems.slice(0, limit).map(item => ({
+    id: item.id,
+    title: item.title,
+    country: item.country,
+    moodScore: item.moodScore!,
+    url: item.url,
+    lens: item.lens,
+  }));
+
+  // Most negative (lowest moodScore)
+  const mostNegative = validItems.slice(-limit).reverse().map(item => ({
+    id: item.id,
+    title: item.title,
+    country: item.country,
+    moodScore: item.moodScore!,
+    url: item.url,
+    lens: item.lens,
+  }));
+
+  return { mostPositive, mostNegative };
 }
 
 /**

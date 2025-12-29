@@ -519,12 +519,12 @@ a:hover {
 }
 
 .map-control-bottom-left {
-  bottom: 1rem;
+  bottom: 4rem; /* Make room for category bar */
   left: 1rem;
 }
 
 .map-control-bottom-center {
-  bottom: 1rem;
+  bottom: 4rem; /* Make room for category bar */
   left: 50%;
   transform: translateX(-50%);
 }
@@ -720,7 +720,7 @@ a:hover {
 /* Summary panel */
 .summary-panel {
   position: fixed;
-  bottom: 0;
+  bottom: 3.5rem; /* Above category bar */
   left: 50%;
   transform: translateX(-50%);
   width: 100%;
@@ -1292,6 +1292,151 @@ a:hover {
 }
 
 /* ============================================
+   CATEGORY BAR (Bottom horizontal bar)
+   ============================================ */
+
+.category-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(10, 10, 10, 0.95);
+  border-top: 1px solid var(--card-border);
+  padding: 0.5rem 1rem;
+  z-index: 1000;
+  backdrop-filter: blur(8px);
+}
+
+.category-bar-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.category-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.8rem;
+}
+
+.category-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--foreground);
+}
+
+.category-btn.active {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: var(--accent);
+  color: var(--foreground);
+}
+
+.category-icon {
+  font-size: 1rem;
+}
+
+.category-label {
+  font-weight: 500;
+}
+
+.category-count {
+  background: rgba(255, 255, 255, 0.15);
+  padding: 0.125rem 0.5rem;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  min-width: 1.5rem;
+  text-align: center;
+}
+
+.category-btn.active .category-count {
+  background: var(--accent);
+  color: white;
+}
+
+/* Category-specific colors when active */
+.category-btn.active[data-category="news"] {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: #3b82f6;
+}
+.category-btn.active[data-category="news"] .category-count {
+  background: #3b82f6;
+}
+
+.category-btn.active[data-category="events"] {
+  background: rgba(168, 85, 247, 0.15);
+  border-color: #a855f7;
+}
+.category-btn.active[data-category="events"] .category-count {
+  background: #a855f7;
+}
+
+.category-btn.active[data-category="tech"] {
+  background: rgba(234, 179, 8, 0.15);
+  border-color: #eab308;
+}
+.category-btn.active[data-category="tech"] .category-count {
+  background: #eab308;
+  color: #000;
+}
+
+.category-btn.active[data-category="social"] {
+  background: rgba(249, 115, 22, 0.15);
+  border-color: #f97316;
+}
+.category-btn.active[data-category="social"] .category-count {
+  background: #f97316;
+}
+
+.category-btn.active[data-category="weather"] {
+  background: rgba(34, 197, 94, 0.15);
+  border-color: #22c55e;
+}
+.category-btn.active[data-category="weather"] .category-count {
+  background: #22c55e;
+}
+
+/* Inactive (deselected) category styling */
+.category-btn:not(.active) {
+  opacity: 0.5;
+}
+
+.category-btn:not(.active):hover {
+  opacity: 0.8;
+}
+
+/* View List button in category bar */
+.category-view-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--accent);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.8rem;
+  font-weight: 500;
+  margin-left: 0.5rem;
+}
+
+.category-view-btn:hover {
+  background: var(--accent-light);
+}
+
+/* ============================================
    EVENT MARKERS
    ============================================ */
 
@@ -1486,6 +1631,43 @@ a:hover {
   }
 
   .layer-label {
+    display: none;
+  }
+
+  /* Category bar mobile */
+  .category-bar {
+    padding: 0.375rem 0.5rem;
+  }
+
+  .category-bar-content {
+    gap: 0.25rem;
+  }
+
+  .category-btn {
+    padding: 0.375rem 0.5rem;
+    font-size: 0.7rem;
+  }
+
+  .category-label {
+    display: none;
+  }
+
+  .category-icon {
+    font-size: 0.9rem;
+  }
+
+  .category-count {
+    font-size: 0.6rem;
+    padding: 0.0625rem 0.375rem;
+    min-width: 1.25rem;
+  }
+
+  .category-view-btn {
+    padding: 0.375rem 0.625rem;
+    font-size: 0.7rem;
+  }
+
+  .category-view-btn span:last-child {
     display: none;
   }
 }
@@ -2533,10 +2715,10 @@ a:hover {
 /* Scan Status Indicator */
 .scan-status-indicator {
   position: fixed;
-  bottom: 1.5rem;
+  bottom: 4.5rem; /* Above category bar */
   left: 50%;
   transform: translateX(-50%);
-  z-index: 1000;
+  z-index: 1001;
   background: var(--card-background);
   border: 1px solid var(--card-border);
   border-radius: 12px;
@@ -2637,18 +2819,26 @@ a:hover {
   text-overflow: ellipsis;
 }
 
+.scan-progress-percent {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 32px;
+  text-align: right;
+}
+
 .scan-progress-bar {
   width: 100%;
-  height: 3px;
+  height: 4px;
   background: var(--card-border);
   border-radius: 2px;
-  margin-top: 0.5rem;
+  margin-top: 0.75rem;
   overflow: hidden;
 }
 
 .scan-progress-fill {
   height: 100%;
-  background: var(--accent);
+  background: linear-gradient(90deg, var(--accent), #60a5fa);
   border-radius: 2px;
   transition: width 0.3s ease;
 }

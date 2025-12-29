@@ -38,6 +38,28 @@ interface SpiderLeg {
 // Maximum items per cluster - if more, split into sub-clusters
 const MAX_CLUSTER_SIZE = 20;
 
+// Normalize country names from different sources (Nominatim, GeoJSON, etc.) to our standard names
+// Only maps API-returned names to our data's naming convention
+const COUNTRY_NAME_ALIASES: Record<string, string> = {
+  // Nominatim returns "Palestinian Territories" but our data uses "Palestine"
+  'Palestinian Territories': 'Palestine',
+  // Common variations from different APIs
+  'United States of America': 'United States',
+  'USA': 'United States',
+  'Russian Federation': 'Russia',
+  'Republic of Korea': 'South Korea',
+  "Democratic People's Republic of Korea": 'North Korea',
+  'United Kingdom of Great Britain and Northern Ireland': 'United Kingdom',
+  'Czech Republic': 'Czechia',
+};
+
+/**
+ * Normalize a country name to our standard format
+ */
+function normalizeCountryName(name: string): string {
+  return COUNTRY_NAME_ALIASES[name] || name;
+}
+
 // Cluster nearby receipts based on zoom level
 // At low zoom (zoomed out), cluster items that are close together geographically
 // At high zoom (zoomed in), show individual markers
@@ -549,8 +571,10 @@ function LeafletMap({
           );
           if (response.ok) {
             const data = await response.json();
-            const country = data.address?.country;
-            if (country) {
+            const rawCountry = data.address?.country;
+            if (rawCountry) {
+              // Normalize country name to match our data
+              const country = normalizeCountryName(rawCountry);
               onCountryClick(country);
               return;
             }

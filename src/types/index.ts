@@ -85,6 +85,8 @@ export interface Receipt {
   snippet: string;
   url: string;
   source: string;
+  sourceType?: 'rss' | 'reddit' | 'hn' | 'telegram' | 'events' | 'search'; // Original source type
+  lens?: 'Headlines' | 'Conversation' | 'Weather' | 'Tech' | 'Events'; // Content category
   language: string;
   engagement: number;
   createdAt: Date;
@@ -181,6 +183,8 @@ export interface ExtractedContent {
   imageUrl?: string;
   sourceUrl: string;
   isRelevant: boolean; // LLM determines if content is relevant to the region
+  articleUrl?: string; // LLM-extracted specific article/post URL
+  publishedAt?: Date; // LLM-extracted publication date
 }
 
 // Events configuration (legacy - kept for compatibility)

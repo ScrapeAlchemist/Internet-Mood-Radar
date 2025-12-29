@@ -24,6 +24,25 @@ Real-time global mood tracking from the internet. Track what's happening across 
 - **Delta Tracking** - Compare today's mood vs yesterday's snapshot
 - **Historical Data** - View trends over time with charts and breakdowns
 
+## Usage Tips
+
+### Data Accumulation
+The more scans you run, the more historical data the app accumulates. This improves:
+- **Trend analysis** - More data points for accurate tension trends over time
+- **Topic tracking** - Better pattern recognition across news cycles
+- **Delta calculations** - More reliable comparisons with historical snapshots
+
+Historical data is stored in the SQLite database and persists across sessions.
+
+### LLM Token Usage
+This app uses OpenAI's GPT-4o-mini for:
+- Generating search queries per region
+- Selecting relevant URLs to scrape
+- Extracting and summarizing content
+- Generating country summaries
+
+**Monitor your token usage** in the [OpenAI dashboard](https://platform.openai.com/usage) to track costs. Each scan consumes tokens for query generation, content extraction, and summarization.
+
 ## Regions
 
 | Region | Countries |

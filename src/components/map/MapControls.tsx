@@ -4,9 +4,20 @@ import Link from 'next/link';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getTensionColor, getTensionCategory } from '@/lib/utils';
 
+type TimeFrame = '1d' | '1w' | '1m';
+export type ContentCategory = 'news' | 'events' | 'tech' | 'social' | 'weather';
+
+export interface CategoryCounts {
+  news: number;
+  events: number;
+  tech: number;
+  social: number;
+  weather: number;
+}
+
 interface MapControlsProps {
-  window: '1h' | '6h' | '24h';
-  onWindowChange: (window: '1h' | '6h' | '24h') => void;
+  timeFrame: TimeFrame;
+  onTimeFrameChange: (timeFrame: TimeFrame) => void;
   tensionIndex: number;
   topicCount: number;
   sourceCount: number;
@@ -19,11 +30,30 @@ interface MapControlsProps {
   loading?: boolean;
   selectedCountry?: string | null;
   onClearSelection?: () => void;
+  // Category filtering (multi-select)
+  selectedCategories?: Set<ContentCategory>;
+  onCategoryToggle?: (category: ContentCategory) => void;
+  categoryCounts?: CategoryCounts;
 }
 
+// Category definitions with icons
+const CATEGORY_CONFIG: Record<ContentCategory, { icon: string; label: string }> = {
+  news: { icon: '📰', label: 'News' },
+  events: { icon: '🎭', label: 'Events' },
+  tech: { icon: '💻', label: 'Tech' },
+  social: { icon: '💬', label: 'Social' },
+  weather: { icon: '🌤️', label: 'Weather' },
+};
+
+// All categories for iteration
+const ALL_CATEGORIES: ContentCategory[] = ['news', 'events', 'tech', 'social', 'weather'];
+
+// Export for use in page.tsx
+export { ALL_CATEGORIES };
+
 export function MapControls({
-  window,
-  onWindowChange,
+  timeFrame,
+  onTimeFrameChange,
   tensionIndex,
   topicCount,
   sourceCount,
@@ -36,6 +66,9 @@ export function MapControls({
   loading,
   selectedCountry,
   onClearSelection,
+  selectedCategories = new Set(ALL_CATEGORIES),
+  onCategoryToggle,
+  categoryCounts = { news: 0, events: 0, tech: 0, social: 0, weather: 0 },
 }: MapControlsProps) {
   const { t } = useLanguage();
 
@@ -68,7 +101,7 @@ export function MapControls({
         </nav>
       </div>
 
-      {/* Bottom left - Mood legend and layer toggles */}
+      {/* Bottom left - Mood legend only */}
       <div className="map-control map-control-bottom-left">
         <div className="mood-legend">
           <div className="mood-legend-title">Mood Level</div>
@@ -84,47 +117,58 @@ export function MapControls({
             </div>
           </div>
         </div>
-
-        {/* Layer toggles */}
-        {onToggleEvents && (
-          <div className="layer-toggles">
-            <button
-              className={`layer-toggle ${showEvents ? 'active' : ''}`}
-              onClick={() => onToggleEvents(!showEvents)}
-              title={showEvents ? 'Hide events' : 'Show events'}
-            >
-              <span className="layer-icon">🎭</span>
-              <span className="layer-label">{t.events}</span>
-              {eventCount > 0 && (
-                <span className="layer-count">{eventCount}</span>
-              )}
-            </button>
-          </div>
-        )}
-
-        {/* All News button */}
-        {onOpenNewsFeed && totalCount > 0 && (
-          <button className="news-btn" onClick={onOpenNewsFeed}>
-            <span>📰</span>
-            <span>{t.allNews}</span>
-            <span className="news-btn-count">{totalCount}</span>
-          </button>
-        )}
       </div>
+
+      {/* Bottom category bar - spans full width */}
+      {onCategoryToggle && (
+        <div className="category-bar">
+          <div className="category-bar-content">
+            {ALL_CATEGORIES.map((cat) => {
+              const config = CATEGORY_CONFIG[cat];
+              const count = categoryCounts[cat];
+              const isActive = selectedCategories.has(cat);
+
+              return (
+                <button
+                  key={cat}
+                  className={`category-btn ${isActive ? 'active' : ''}`}
+                  onClick={() => onCategoryToggle(cat)}
+                  title={`${config.label} (${count}) - Click to ${isActive ? 'hide' : 'show'}`}
+                  data-category={cat}
+                >
+                  <span className="category-icon">{config.icon}</span>
+                  <span className="category-label">{config.label}</span>
+                  {count > 0 && (
+                    <span className="category-count">{count}</span>
+                  )}
+                </button>
+              );
+            })}
+
+            {/* View List button integrated into the bar */}
+            {onOpenNewsFeed && totalCount > 0 && (
+              <button className="category-view-btn" onClick={onOpenNewsFeed}>
+                <span>📋</span>
+                <span>View List</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Bottom center - Time window and stats */}
       <div className="map-control map-control-bottom-center">
         <div className="map-stats-panel">
-          {/* Time window selector */}
+          {/* Time frame selector */}
           <div className="time-selector">
-            {(['1h', '6h', '24h'] as const).map((w) => (
+            {(['1d', '1w', '1m'] as const).map((tf) => (
               <button
-                key={w}
-                className={`time-btn ${window === w ? 'active' : ''}`}
-                onClick={() => onWindowChange(w)}
+                key={tf}
+                className={`time-btn ${timeFrame === tf ? 'active' : ''}`}
+                onClick={() => onTimeFrameChange(tf)}
                 disabled={loading}
               >
-                {w}
+                {tf === '1d' ? '1 Day' : tf === '1w' ? '1 Week' : '1 Month'}
               </button>
             ))}
           </div>

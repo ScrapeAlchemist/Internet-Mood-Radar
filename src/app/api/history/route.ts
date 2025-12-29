@@ -7,9 +7,10 @@ import {
   clearAllHistory,
   getEmotionAverages,
   getSourceBreakdown,
-  getCountryBreakdown,
+  getCountryMoodRanking,
   getTopTopics,
   getHistoricalItemsWithDetails,
+  getHeadlineHighlights,
 } from '@/lib/history';
 
 // Valid actions for the history endpoint
@@ -137,8 +138,8 @@ export async function GET(request: NextRequest) {
       }
 
       case 'countries': {
-        const countries = await getCountryBreakdown(hours);
-        return NextResponse.json({ countries });
+        const countryMoods = await getCountryMoodRanking(hours);
+        return NextResponse.json({ countryMoods });
       }
 
       case 'topics': {
@@ -153,23 +154,25 @@ export async function GET(request: NextRequest) {
 
       case 'dashboard': {
         // Return all dashboard data in one call for efficiency
-        const [trend, stats, emotions, sources, countries, topics, items] = await Promise.all([
+        const [trend, stats, emotions, sources, countryMoods, topics, items, headlines] = await Promise.all([
           getTensionTrend(hours, window),
           getHistoryStats(),
           getEmotionAverages(hours),
           getSourceBreakdown(hours),
-          getCountryBreakdown(hours),
+          getCountryMoodRanking(hours),
           getTopTopics(hours, 10),
           getHistoricalItemsWithDetails(hours, limit),
+          getHeadlineHighlights(hours, 5),
         ]);
         return NextResponse.json({
           trend,
           stats,
           emotions,
           sources,
-          countries,
+          countryMoods,
           topics,
           items,
+          headlines,
         });
       }
 

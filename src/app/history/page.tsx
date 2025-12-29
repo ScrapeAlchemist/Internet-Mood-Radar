@@ -6,10 +6,11 @@ import {
   TensionChart,
   EmotionPanel,
   BreakdownPanel,
-  TopicsPanel,
   ItemsFeed,
+  MoodRankingPanel,
+  HeadlinesPanel,
 } from '@/components/history';
-import { TensionTrend, TopicAggregate, HistoricalItemWithDetails } from '@/lib/history';
+import { TensionTrend, HistoricalItemWithDetails, CountryMoodEntry, HeadlineHighlight } from '@/lib/history';
 import { getTensionColor } from '@/lib/utils';
 import './history.css';
 
@@ -27,10 +28,14 @@ interface SourceBreakdown {
   percentage: number;
 }
 
-interface CountryBreakdown {
-  country: string;
-  count: number;
-  percentage: number;
+interface CountryMoodRanking {
+  happiest: CountryMoodEntry[];
+  tensest: CountryMoodEntry[];
+}
+
+interface HeadlineHighlights {
+  mostPositive: HeadlineHighlight[];
+  mostNegative: HeadlineHighlight[];
 }
 
 interface DashboardData {
@@ -38,8 +43,8 @@ interface DashboardData {
   stats: HistoryStats;
   emotions: Record<string, number>;
   sources: SourceBreakdown[];
-  countries: CountryBreakdown[];
-  topics: TopicAggregate[];
+  countryMoods: CountryMoodRanking;
+  headlines: HeadlineHighlights;
   items: HistoricalItemWithDetails[];
 }
 
@@ -72,8 +77,8 @@ export default function HistoryPage() {
         },
         emotions: dashboardData.emotions || {},
         sources: dashboardData.sources || [],
-        countries: dashboardData.countries || [],
-        topics: dashboardData.topics || [],
+        countryMoods: dashboardData.countryMoods || { happiest: [], tensest: [] },
+        headlines: dashboardData.headlines || { mostPositive: [], mostNegative: [] },
         items: dashboardData.items || [],
       });
     } catch (error) {
@@ -135,16 +140,19 @@ export default function HistoryPage() {
             <EmotionPanel emotions={data.emotions} />
           </section>
 
-          {/* Topics Panel */}
+          {/* Headlines Panel */}
           <section className="dashboard-panel topics-panel">
-            <h2>Top Topics</h2>
-            <TopicsPanel topics={data.topics} maxTopics={8} />
+            <h2>Headline Highlights</h2>
+            <HeadlinesPanel
+              mostPositive={data.headlines.mostPositive}
+              mostNegative={data.headlines.mostNegative}
+            />
           </section>
 
-          {/* Source Breakdown */}
+          {/* Category Breakdown */}
           <section className="dashboard-panel sources-panel">
             <BreakdownPanel
-              title="Sources"
+              title="Categories"
               items={data.sources.map((s) => ({
                 label: s.source,
                 count: s.count,
@@ -155,17 +163,12 @@ export default function HistoryPage() {
             />
           </section>
 
-          {/* Country Breakdown */}
+          {/* Country Mood Ranking */}
           <section className="dashboard-panel countries-panel">
-            <BreakdownPanel
-              title="Regions"
-              items={data.countries.map((c) => ({
-                label: c.country,
-                count: c.count,
-                percentage: c.percentage,
-              }))}
-              colorScheme="green"
-              maxItems={5}
+            <h2>Country Mood</h2>
+            <MoodRankingPanel
+              happiest={data.countryMoods.happiest}
+              tensest={data.countryMoods.tensest}
             />
           </section>
 
@@ -183,7 +186,7 @@ export default function HistoryPage() {
             </div>
             <div className="stat">
               <span className="stat-value">{data.stats.totalPulses}</span>
-              <span className="stat-label">snapshots</span>
+              <span className="stat-label">scans</span>
             </div>
             <div className="stat">
               <span

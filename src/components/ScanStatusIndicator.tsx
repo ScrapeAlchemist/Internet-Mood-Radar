@@ -142,14 +142,17 @@ export function ScanStatusIndicator({ onScanComplete }: ScanStatusIndicatorProps
           <span className="scan-status-message">{status.message}</span>
         </div>
         {status.progress !== undefined && isActive && (
-          <div className="scan-progress-bar">
-            <div
-              className="scan-progress-fill"
-              style={{ width: `${status.progress}%` }}
-            />
-          </div>
+          <span className="scan-progress-percent">{status.progress}%</span>
         )}
       </div>
+      {status.progress !== undefined && isActive && (
+        <div className="scan-progress-bar">
+          <div
+            className="scan-progress-fill"
+            style={{ width: `${status.progress}%` }}
+          />
+        </div>
+      )}
     </div>
   );
 }

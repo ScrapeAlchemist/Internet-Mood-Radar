@@ -96,6 +96,7 @@ model HistoricalItem {
   engagement    Int      @default(0)
   context       String
   relevanceScore Float   @default(0)
+  moodScore     Int?     // 0-100: 0=very negative, 50=neutral, 100=very positive
   country       String?  // Country/region name from location
   locationName  String?  // Location name (city, etc.)
   lat           Float?   // Latitude for map display

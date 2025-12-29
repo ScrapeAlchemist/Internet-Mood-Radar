@@ -1,16 +1,23 @@
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
-import { Receipt, ContentCategory } from '@/types';
+import { Receipt } from '@/types';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { Translations } from '@/lib/translations';
 
 const ITEMS_PER_PAGE = 50;
 
+// Re-define ContentCategory locally to match MapControls
+type ContentCategory = 'news' | 'events' | 'tech' | 'social' | 'weather';
+const ALL_CATEGORIES: ContentCategory[] = ['news', 'events', 'tech', 'social', 'weather'];
+
 interface NewsFeedProps {
   receipts: Receipt[];
   isOpen: boolean;
   onClose: () => void;
+  // Sync with map's category filter
+  initialCategories?: Set<ContentCategory>;
+  onCategoriesChange?: (categories: Set<ContentCategory>) => void;
 }
 
 // Source colors for visual distinction
@@ -20,6 +27,15 @@ const SOURCE_COLORS: Record<string, string> = {
   'Search: tech': '#22c55e',
   'Search: events': '#a855f7',
   'Search: weather': '#06b6d4',
+};
+
+// Category config for filter buttons
+const CATEGORY_CONFIG: Record<ContentCategory, { icon: string; label: string }> = {
+  news: { icon: '📰', label: 'News' },
+  events: { icon: '🎭', label: 'Events' },
+  tech: { icon: '💻', label: 'Tech' },
+  social: { icon: '💬', label: 'Social' },
+  weather: { icon: '🌤️', label: 'Weather' },
 };
 
 // Get favicon URL - prefer pre-extracted, fallback to Google's service
@@ -47,34 +63,83 @@ function getRelativeTime(date: Date, t: Translations): string {
   return `${Math.floor(diffHours / 24)}${t.daysAgo}`;
 }
 
-// Get category from source string
-function getCategoryFromSource(source: string): ContentCategory | null {
-  if (source.includes('news')) return 'news';
-  if (source.includes('social')) return 'social';
-  if (source.includes('tech')) return 'tech';
-  if (source.includes('events')) return 'events';
-  if (source.includes('weather')) return 'weather';
-  return null;
+// Get category from receipt using lens field (same logic as page.tsx)
+function getReceiptCategory(receipt: Receipt): ContentCategory {
+  // Use lens field if available (new data)
+  if (receipt.lens) {
+    switch (receipt.lens) {
+      case 'Events': return 'events';
+      case 'Tech': return 'tech';
+      case 'Weather': return 'weather';
+      case 'Conversation': return 'social';
+      case 'Headlines':
+      default: return 'news';
+    }
+  }
+  // Fallback to sourceType for older data
+  const sourceType = receipt.sourceType || receipt.source;
+  if (sourceType === 'events') return 'events';
+  if (sourceType === 'hn') return 'tech';
+  if (sourceType === 'reddit' || sourceType === 'telegram') return 'social';
+  // Also check source string for category hints
+  if (receipt.source.includes('tech')) return 'tech';
+  if (receipt.source.includes('social')) return 'social';
+  if (receipt.source.includes('events')) return 'events';
+  if (receipt.source.includes('weather')) return 'weather';
+  return 'news';
 }
 
-export function NewsFeed({ receipts, isOpen, onClose }: NewsFeedProps) {
+export function NewsFeed({
+  receipts,
+  isOpen,
+  onClose,
+  initialCategories,
+  onCategoriesChange,
+}: NewsFeedProps) {
   const { t } = useLanguage();
-  const [filter, setFilter] = useState<ContentCategory | 'all'>('all');
+  const [selectedCategories, setSelectedCategories] = useState<Set<ContentCategory>>(
+    () => initialCategories || new Set(ALL_CATEGORIES)
+  );
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+
+  // Sync with external categories when panel opens
+  useEffect(() => {
+    if (isOpen && initialCategories) {
+      setSelectedCategories(initialCategories);
+    }
+  }, [isOpen, initialCategories]);
 
   // Reset page when filter or search changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [filter, searchQuery]);
+  }, [selectedCategories, searchQuery]);
 
-  // Filter receipts based on category and search
+  // Toggle a category on/off (at least one must remain selected)
+  const handleCategoryToggle = (category: ContentCategory) => {
+    setSelectedCategories(prev => {
+      const next = new Set(prev);
+      if (next.has(category)) {
+        // Don't allow deselecting the last category
+        if (next.size <= 1) return prev;
+        next.delete(category);
+      } else {
+        next.add(category);
+      }
+      // Notify parent of change
+      onCategoriesChange?.(next);
+      return next;
+    });
+  };
+
+  // Filter receipts based on selected categories and search
   const filteredReceipts = useMemo(() => {
     return receipts.filter((r) => {
-      // Category filter
-      if (filter !== 'all') {
-        const category = getCategoryFromSource(r.source);
-        if (category !== filter) return false;
+      // Category filter (multi-select)
+      const category = getReceiptCategory(r);
+      // If all selected or none selected, show all
+      if (selectedCategories.size > 0 && selectedCategories.size < ALL_CATEGORIES.length) {
+        if (!selectedCategories.has(category)) return false;
       }
 
       // Search filter
@@ -88,12 +153,11 @@ export function NewsFeed({ receipts, isOpen, onClose }: NewsFeedProps) {
 
       return true;
     });
-  }, [receipts, filter, searchQuery]);
+  }, [receipts, selectedCategories, searchQuery]);
 
   // Count by category
   const categoryCounts = useMemo(() => {
-    const counts: Record<string, number> = {
-      all: receipts.length,
+    const counts: Record<ContentCategory, number> = {
       news: 0,
       social: 0,
       tech: 0,
@@ -102,8 +166,8 @@ export function NewsFeed({ receipts, isOpen, onClose }: NewsFeedProps) {
     };
 
     for (const r of receipts) {
-      const cat = getCategoryFromSource(r.source);
-      if (cat) counts[cat]++;
+      const cat = getReceiptCategory(r);
+      counts[cat]++;
     }
 
     return counts;
@@ -139,42 +203,24 @@ export function NewsFeed({ receipts, isOpen, onClose }: NewsFeedProps) {
             className="news-feed-search"
           />
           <div className="news-feed-filters">
-            <button
-              className={`news-feed-filter ${filter === 'all' ? 'active' : ''}`}
-              onClick={() => setFilter('all')}
-            >
-              {t.all} ({categoryCounts.all})
-            </button>
-            <button
-              className={`news-feed-filter ${filter === 'news' ? 'active' : ''}`}
-              onClick={() => setFilter('news')}
-            >
-              {t.categoryNews} ({categoryCounts.news})
-            </button>
-            <button
-              className={`news-feed-filter ${filter === 'social' ? 'active' : ''}`}
-              onClick={() => setFilter('social')}
-            >
-              {t.categorySocial} ({categoryCounts.social})
-            </button>
-            <button
-              className={`news-feed-filter ${filter === 'tech' ? 'active' : ''}`}
-              onClick={() => setFilter('tech')}
-            >
-              {t.categoryTech} ({categoryCounts.tech})
-            </button>
-            <button
-              className={`news-feed-filter ${filter === 'events' ? 'active' : ''}`}
-              onClick={() => setFilter('events')}
-            >
-              {t.categoryEvents} ({categoryCounts.events})
-            </button>
-            <button
-              className={`news-feed-filter ${filter === 'weather' ? 'active' : ''}`}
-              onClick={() => setFilter('weather')}
-            >
-              {t.categoryWeather} ({categoryCounts.weather})
-            </button>
+            {ALL_CATEGORIES.map((cat) => {
+              const config = CATEGORY_CONFIG[cat];
+              const count = categoryCounts[cat];
+              const isActive = selectedCategories.has(cat);
+
+              return (
+                <button
+                  key={cat}
+                  className={`news-feed-filter ${isActive ? 'active' : ''}`}
+                  onClick={() => handleCategoryToggle(cat)}
+                  title={`${config.label} (${count}) - Click to ${isActive ? 'hide' : 'show'}`}
+                >
+                  <span className="filter-icon">{config.icon}</span>
+                  <span className="filter-label">{config.label}</span>
+                  {count > 0 && <span className="filter-count">({count})</span>}
+                </button>
+              );
+            })}
           </div>
         </div>
 

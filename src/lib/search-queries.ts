@@ -765,7 +765,24 @@ Return JSON array: [{"i": 0, "category": "news"}, ...]`;
     });
 
     const content = response.choices[0]?.message?.content || '[]';
-    const selections = JSON.parse(content.replace(/```json\n?|\n?```/g, ''));
+
+    // Robust JSON extraction - LLM sometimes returns text before/after the array
+    let selections: { i: number; category: ContentCategory }[] = [];
+    const cleanedContent = content.replace(/```json\n?|\n?```/g, '').trim();
+
+    try {
+      selections = JSON.parse(cleanedContent);
+    } catch {
+      // Try to extract JSON array from the response
+      const arrayMatch = cleanedContent.match(/\[[\s\S]*\]/);
+      if (arrayMatch) {
+        try {
+          selections = JSON.parse(arrayMatch[0]);
+        } catch {
+          console.warn(`[SEARCH-QUERIES] Batch ${batchIndex + 1}: Could not parse JSON array`);
+        }
+      }
+    }
 
     const batchSelected = selections.map((s: { i: number; category: ContentCategory }) => {
       const result = urlList[s.i];
@@ -865,9 +882,19 @@ Extract:
    - If no metrics visible, return 0
 9. imageUrl: The main article/hero image URL from the markdown content (not logos, icons, ads, or social buttons). Return null if no good image found.
 10. isRelevant: true/false - Is this content actually about ${config.name} or related to this region?
+11. articleUrl: The URL of the specific article/post being discussed. Look for:
+   - On Twitter/X: the specific tweet/post URL (like x.com/user/status/123456)
+   - On Reddit: the specific post URL
+   - On news sites: the article URL
+   - Return the most specific URL to the content, NOT profile pages or homepages. Return null if not found.
+12. publishedAt: The publication date/time of the article in ISO 8601 format (YYYY-MM-DDTHH:mm:ssZ). Look for:
+   - Date stamps like "December 29, 2025", "2 hours ago", "Posted on Dec 29"
+   - Twitter timestamps, Reddit post times
+   - News article publication dates
+   - Return null if no date found.
 
 Return ONLY JSON:
-{"title": "...", "summary": "...", "category": "${hintCategory}", "location": null, "eventDate": null, "sentiment": "neutral", "moodScore": 50, "engagement": 0, "imageUrl": null, "isRelevant": true}`;
+{"title": "...", "summary": "...", "category": "${hintCategory}", "location": null, "eventDate": null, "sentiment": "neutral", "moodScore": 50, "engagement": 0, "imageUrl": null, "isRelevant": true, "articleUrl": null, "publishedAt": null}`;
 
   try {
     const response = await rateLimitedChatCompletion({
@@ -932,7 +959,7 @@ Return ONLY JSON:
     const title = (extracted.title as string) || '';
     const summary = (extracted.summary as string) || '';
 
-    // Filter out empty/error pages
+    // Filter out empty/error pages and template text from LLM prompts
     const invalidTitlePatterns = [
       /^untitled$/i,
       /^no\s*(posts?|articles?|content|data)\s*(available|found)?$/i,
@@ -944,6 +971,13 @@ Return ONLY JSON:
       /^access\s*denied/i,
       /^forbidden/i,
       /^loading/i,
+      // Template text patterns - LLM echoing prompts instead of extracting content
+      /IN ENGLISH/i,
+      /IN HEBREW/i,
+      /IN RUSSIAN/i,
+      /translate if needed/i,
+      /The article headline/i,
+      /1-2 sentence summary/i,
     ];
 
     const isInvalidTitle = !title || invalidTitlePatterns.some(p => p.test(title.trim()));
@@ -992,6 +1026,31 @@ Return ONLY JSON:
       return null;
     }
 
+    // Parse articleUrl from LLM (specific article/post URL)
+    let articleUrl: string | undefined;
+    if (typeof extracted.articleUrl === 'string' && extracted.articleUrl.startsWith('http')) {
+      try {
+        new URL(extracted.articleUrl); // Validate it's a proper URL
+        articleUrl = extracted.articleUrl;
+      } catch {
+        articleUrl = undefined;
+      }
+    }
+
+    // Parse publishedAt from LLM (article publication date)
+    let publishedAt: Date | undefined;
+    if (extracted.publishedAt) {
+      try {
+        const parsed = new Date(extracted.publishedAt as string);
+        // Only use if valid and not in the future
+        if (!isNaN(parsed.getTime()) && parsed <= new Date()) {
+          publishedAt = parsed;
+        }
+      } catch {
+        publishedAt = undefined;
+      }
+    }
+
     return {
       title,
       summary,
@@ -1004,6 +1063,8 @@ Return ONLY JSON:
       imageUrl: finalImageUrl,
       sourceUrl,
       isRelevant,
+      articleUrl,
+      publishedAt,
     };
   } catch (error) {
     console.error('[SEARCH-QUERIES] Failed to extract content:', error);

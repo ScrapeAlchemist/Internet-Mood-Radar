@@ -235,7 +235,9 @@ function itemsToReceipts(items: NormalizedItem[], max: number = 5): Receipt[] {
     title: item.title,
     snippet: item.text || '',
     url: item.url,
-    source: item.source, // Use source type (search, events, etc.) not context
+    source: item.context, // Feed name / context
+    sourceType: item.source, // Source type (search, events, etc.)
+    lens: item.lens, // Content category (Headlines, Weather, Tech, etc.)
     language: item.language,
     engagement: item.engagement,
     createdAt: item.createdAt,

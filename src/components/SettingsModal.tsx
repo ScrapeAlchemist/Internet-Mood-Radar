@@ -5,17 +5,6 @@ import { ContentCategory } from '@/types';
 import { AppLanguage, languageNames } from '@/lib/translations';
 import { useLanguage } from '@/contexts/LanguageContext';
 
-// Display time frame options
-type DisplayTimeFrame = '1d' | '1w' | '1m' | '1y' | 'all';
-
-const TIME_FRAME_LABELS: Record<DisplayTimeFrame, string> = {
-  '1d': 'Last 24 hours',
-  '1w': 'Last week',
-  '1m': 'Last month',
-  '1y': 'Last year',
-  'all': 'All time',
-};
-
 interface AppSettings {
   regions: string[];
   language: AppLanguage;
@@ -23,7 +12,6 @@ interface AppSettings {
   maxSearchQueries: number;
   maxUrlsToScrape: number;
   sourcesPerCategory: number;
-  displayTimeFrame: DisplayTimeFrame;
 }
 
 // Available regions for selection
@@ -38,12 +26,11 @@ const AVAILABLE_REGIONS = [
 
 /** Estimate token usage for a scan
  *
- * LLM calls per scan:
- * - Step 1: Query generation (5 categories × ~1200 tokens each)
- * - Step 1: URL selection (~200 tokens per URL)
- * - Step 1: Content extraction (~800 tokens per URL - includes title, summary, location, mood)
- * - Step 1: Geocoding (~150 tokens per item with location)
- * - Step 7: Country summaries (~200 tokens per country)
+ * LLM calls per scan (per region):
+ * - Query generation: ~1200 tokens per query
+ * - URL selection: ~200 tokens per URL
+ * - Content extraction + geocoding: ~200 tokens per item
+ * - Base per region (config, sources, languages, topics, summaries): ~16150 tokens
  *
  * Cached (30 days): region config, platform sources, country languages, geocoding results
  */
@@ -59,23 +46,21 @@ function estimateTokenUsage(settings: {
 } {
   const { maxSearchQueries, maxUrlsToScrape, regionsCount } = settings;
 
-  // Per-item costs (content extraction + geocoding)
-  const tokensPerItem = 950; // 800 extraction + 150 geocoding
-  // Per-query costs (query generation)
+  // Per item: unified location+geocode call (~150 input + 50 output)
+  const tokensPerItem = 200;
+  // Per query: ~500 input + 700 output average
   const tokensPerQuery = 1200;
-  // URL selection cost
+  // URL selection: ~200 tokens per URL (batch processing)
   const urlSelectionPerUrl = 200;
-  // Base cost per region (config generation, platform sources, country languages - mostly cached)
-  const tokensPerRegionBase = 2000;
-  // Country summary cost (estimate ~10 countries per region on average)
-  const countrySummaryTokens = 200 * 10 * regionsCount;
+  // Base per region: config + sources + languages + topics + summaries
+  const tokensPerRegionBase = 16150;
 
   const itemTokens = maxUrlsToScrape * tokensPerItem * regionsCount;
   const queryTokens = maxSearchQueries * tokensPerQuery * regionsCount;
   const urlSelectionTokens = maxUrlsToScrape * urlSelectionPerUrl * regionsCount;
   const baseTokens = tokensPerRegionBase * regionsCount;
 
-  const totalTokens = itemTokens + queryTokens + urlSelectionTokens + baseTokens + countrySummaryTokens;
+  const totalTokens = itemTokens + queryTokens + urlSelectionTokens + baseTokens;
   const tokensCached = Math.round(totalTokens * 0.4);
 
   // GPT-4o-mini pricing: $0.15/1M input, $0.60/1M output (estimate 75% input, 25% output)
@@ -370,23 +355,6 @@ export function SettingsModal({ isOpen, onClose, onRescan, onHistoryCleared, onS
                     </button>
                   ))}
                 </div>
-              </div>
-
-              {/* Display Time Frame */}
-              <div className="settings-section">
-                <label className="settings-label">Display Time Frame</label>
-                <div className="settings-timeframe-buttons">
-                  {(Object.keys(TIME_FRAME_LABELS) as DisplayTimeFrame[]).map((tf) => (
-                    <button
-                      key={tf}
-                      className={`settings-timeframe-btn ${settings.displayTimeFrame === tf ? 'active' : ''}`}
-                      onClick={() => updateSetting('displayTimeFrame', tf)}
-                    >
-                      {TIME_FRAME_LABELS[tf]}
-                    </button>
-                  ))}
-                </div>
-                <p className="settings-hint">How far back to display accumulated news items</p>
               </div>
 
               {/* Regions */}

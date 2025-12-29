@@ -2,6 +2,7 @@ import { FetchResult, NormalizedItem, NonFatalError, CountryConfig } from '@/typ
 import { SOURCES, getActiveCountryConfigs } from '@/lib/config';
 import { getSettings } from '@/lib/settings';
 import { SearchAdapter } from './search';
+import { initRegionTracking, clearRegionTracking } from '@/lib/scan-status';
 
 /**
  * Fetch all items using search-based collection
@@ -26,6 +27,9 @@ export async function fetchAllSources(since: Date): Promise<{
 
   const startTime = Date.now();
   const searchConfig = SOURCES.find((s) => s.type === 'search') || SOURCES[0];
+
+  // Initialize region tracking for progress display (slowest region wins)
+  initRegionTracking(countryConfigs.map(c => c.name));
 
   // Fetch from each region in parallel
   const regionResults = await Promise.all(
@@ -67,6 +71,9 @@ export async function fetchAllSources(since: Date): Promise<{
     allItems.push(...result.items);
     allErrors.push(...result.errors);
   }
+
+  // Clear region tracking after fetching phase completes
+  clearRegionTracking();
 
   const totalElapsed = Date.now() - startTime;
   console.log('\n[FETCH] ───────────────────────────────────────────────────────');

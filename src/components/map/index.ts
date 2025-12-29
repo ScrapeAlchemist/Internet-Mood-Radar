@@ -1,2 +1,3 @@
 export { WorldMap } from './WorldMap';
-export { MapControls } from './MapControls';
+export { MapControls, ALL_CATEGORIES } from './MapControls';
+export type { ContentCategory, CategoryCounts } from './MapControls';
